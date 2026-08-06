@@ -45,9 +45,57 @@ struct FeedbackRecord: Codable, Equatable {
     let recordedAt: Date
 }
 
+struct AnalysisRecord: Codable, Identifiable, Equatable {
+    let messageID: String
+    let sender: String
+    let subject: String
+    let receivedDescription: String
+    let analyzedAt: Date
+    let importance: Int
+    let notificationSent: Bool
+    let requiresReply: Bool
+    let reason: String
+    var userFeedback: Bool?
+
+    var id: String { messageID }
+}
+
 struct PersistentState: Codable, Equatable {
     var processedMessages: [String: Date] = [:]
     var feedback: [FeedbackRecord] = []
+    var analysisHistory: [AnalysisRecord] = []
+
+    enum CodingKeys: String, CodingKey {
+        case processedMessages
+        case feedback
+        case analysisHistory
+    }
+
+    init(
+        processedMessages: [String: Date] = [:],
+        feedback: [FeedbackRecord] = [],
+        analysisHistory: [AnalysisRecord] = []
+    ) {
+        self.processedMessages = processedMessages
+        self.feedback = feedback
+        self.analysisHistory = analysisHistory
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        processedMessages = try container.decodeIfPresent(
+            [String: Date].self,
+            forKey: .processedMessages
+        ) ?? [:]
+        feedback = try container.decodeIfPresent(
+            [FeedbackRecord].self,
+            forKey: .feedback
+        ) ?? []
+        analysisHistory = try container.decodeIfPresent(
+            [AnalysisRecord].self,
+            forKey: .analysisHistory
+        ) ?? []
+    }
 }
 
 struct ScanSummary: Equatable {

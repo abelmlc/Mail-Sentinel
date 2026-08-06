@@ -19,32 +19,44 @@ enum MailReaderError: LocalizedError {
 }
 
 enum MailReader {
-    static func fetchMessages(since date: Date) throws -> [MailMessage] {
+    static func fetchMessages(
+        since date: Date,
+        unreadOnly: Bool = false,
+        limit: Int = 500
+    ) throws -> [MailMessage] {
         let elapsed = Int(Date().timeIntervalSince(date))
-        let lookbackSeconds = min(max(elapsed + 600, 600), 60 * 60 * 24 * 7)
+        let lookbackSeconds = min(max(elapsed + 600, 600), 60 * 60 * 24 * 365)
+        let safeLimit = min(max(limit, 1), 5_000)
+        let unreadOnlyValue = unreadOnly ? "true" : "false"
 
         let source = """
         set cutoffDate to (current date) - \(lookbackSeconds)
         set outputRecords to {}
+        set selectedCount to 0
+        set unreadOnlyFlag to \(unreadOnlyValue)
 
         tell application "Mail"
             set candidateMessages to every message of inbox whose date received is greater than or equal to cutoffDate
             repeat with currentMessage in candidateMessages
                 try
-                    set localID to id of currentMessage as string
-                    set internetID to message id of currentMessage as string
-                    if internetID is "" then set internetID to "mail-local-" & localID
-                    set senderText to sender of currentMessage as string
-                    set subjectText to subject of currentMessage as string
-                    set receivedText to date received of currentMessage as string
                     set readValue to read status of currentMessage
-                    set repliedValue to was replied to of currentMessage
-                    set bodyText to ""
-                    try
-                        set bodyText to content of currentMessage as string
-                        if (length of bodyText) > 1800 then set bodyText to text 1 thru 1800 of bodyText
-                    end try
-                    set end of outputRecords to {internetID, senderText, subjectText, receivedText, bodyText, readValue, repliedValue}
+                    if (unreadOnlyFlag is false) or (readValue is false) then
+                        set localID to id of currentMessage as string
+                        set internetID to message id of currentMessage as string
+                        if internetID is "" then set internetID to "mail-local-" & localID
+                        set senderText to sender of currentMessage as string
+                        set subjectText to subject of currentMessage as string
+                        set receivedText to date received of currentMessage as string
+                        set repliedValue to was replied to of currentMessage
+                        set bodyText to ""
+                        try
+                            set bodyText to content of currentMessage as string
+                            if (length of bodyText) > 1800 then set bodyText to text 1 thru 1800 of bodyText
+                        end try
+                        set end of outputRecords to {internetID, senderText, subjectText, receivedText, bodyText, readValue, repliedValue}
+                        set selectedCount to selectedCount + 1
+                        if selectedCount is greater than or equal to \(safeLimit) then exit repeat
+                    end if
                 end try
             end repeat
         end tell

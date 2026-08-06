@@ -48,7 +48,22 @@ do {
     defer { try? FileManager.default.removeItem(at: directory) }
 
     let store = FeedbackStore(storageURL: url)
-    store.markProcessed(["message-1"])
+    store.recordAnalyses(
+        [
+            AnalysisRecord(
+                messageID: "message-1",
+                sender: "Alice <alice@example.test>",
+                subject: "Réunion vendredi",
+                receivedDescription: "vendredi",
+                analyzedAt: Date(),
+                importance: 82,
+                notificationSent: true,
+                requiresReply: true,
+                reason: "Demande directe",
+                userFeedback: nil
+            )
+        ]
+    )
     store.recordFeedback(
         messageID: "message-1",
         sender: "Alice <alice@example.test>",
@@ -60,6 +75,23 @@ do {
     try check(reloaded.isProcessed("message-1"), "Persistance des messages traités")
     try check(reloaded.snapshot().feedback.count == 1, "Persistance du retour")
     try check(reloaded.snapshot().feedback.first?.useful == true, "Valeur du retour")
+    try check(reloaded.snapshot().analysisHistory.count == 1, "Persistance de l'historique")
+    try check(
+        reloaded.snapshot().analysisHistory.first?.userFeedback == true,
+        "Association du retour à l'historique"
+    )
+    try check(
+        reloaded.needsClassification("message-1") == false,
+        "Un message historisé ne doit pas être reclassé"
+    )
+
+    let legacyData = Data(
+        """
+        {"processedMessages": {}, "feedback": []}
+        """.utf8
+    )
+    let legacyState = try JSONDecoder().decode(PersistentState.self, from: legacyData)
+    try check(legacyState.analysisHistory.isEmpty, "Migration de l'ancien état sans historique")
 
     let escaped = MailReader.escapeAppleScriptString("id\\with\"quotes")
     try check(escaped == "id\\\\with\\\"quotes", "Échappement AppleScript")

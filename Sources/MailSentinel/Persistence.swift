@@ -29,10 +29,34 @@ final class FeedbackStore {
         }
     }
 
+    func needsClassification(_ messageID: String) -> Bool {
+        lock.withLock {
+            let wasProcessed = state.processedMessages[messageID] != nil
+            let hasHistory = state.analysisHistory.contains { $0.messageID == messageID }
+            return !wasProcessed || !hasHistory
+        }
+    }
+
     func markProcessed(_ messageIDs: [String], at date: Date = Date()) {
         lock.withLock {
             for messageID in messageIDs {
                 state.processedMessages[messageID] = date
+            }
+            pruneLocked(referenceDate: date)
+            saveLocked()
+        }
+    }
+
+    func recordAnalyses(
+        _ records: [AnalysisRecord],
+        processedAt date: Date = Date()
+    ) {
+        lock.withLock {
+            let recordIDs = Set(records.map(\.messageID))
+            state.analysisHistory.removeAll { recordIDs.contains($0.messageID) }
+            state.analysisHistory.append(contentsOf: records)
+            for record in records {
+                state.processedMessages[record.messageID] = date
             }
             pruneLocked(referenceDate: date)
             saveLocked()
@@ -59,6 +83,9 @@ final class FeedbackStore {
             )
             if state.feedback.count > 500 {
                 state.feedback = Array(state.feedback.suffix(500))
+            }
+            if let index = state.analysisHistory.firstIndex(where: { $0.messageID == messageID }) {
+                state.analysisHistory[index].userFeedback = useful
             }
             saveLocked()
         }
@@ -93,8 +120,15 @@ final class FeedbackStore {
     }
 
     private func pruneLocked(referenceDate: Date) {
-        let cutoff = referenceDate.addingTimeInterval(-60 * 60 * 24 * 90)
-        state.processedMessages = state.processedMessages.filter { $0.value >= cutoff }
+        let processedCutoff = referenceDate.addingTimeInterval(-60 * 60 * 24 * 365)
+        let historyCutoff = referenceDate.addingTimeInterval(-60 * 60 * 24 * 30)
+        state.processedMessages = state.processedMessages.filter { $0.value >= processedCutoff }
+        state.analysisHistory = state.analysisHistory
+            .filter { $0.analyzedAt >= historyCutoff }
+            .sorted { $0.analyzedAt > $1.analyzedAt }
+        if state.analysisHistory.count > 2_000 {
+            state.analysisHistory = Array(state.analysisHistory.prefix(2_000))
+        }
     }
 
     private func saveLocked() {
